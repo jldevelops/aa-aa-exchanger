@@ -1,0 +1,161 @@
+{
+	init: `{
+		$BYTE_ASSET = var['7T3MIJFUUZD23DZJ6BDDGBZPNS6RYFAM']['asset'];
+		$BASE_INP = 9300;
+		$asset_wanted = typeof(trigger.data.want) == 'string' AND trigger.data.want=='bytes'?$BYTE_ASSET:trigger.data.want;
+		$asset_inp = trigger.output[[asset!=base]];
+		if(trigger.output[[asset!=base]].asset != 'none')
+			$asset = trigger.output[[asset!=base]].asset;
+		if(!trigger.data.cancel){
+			if(!$asset) bounce('You must send an asset to offer for exchange. To fill already created order, send fill = 1 too. To cancel an already created order, send cancel = 1.');
+			if(!$asset_wanted OR !asset[$asset_wanted].exists) bounce('want param missing. You must write asset you ask for which will be atomically exchanged for yours or write "bytes" if you want an asset redeemable for bytes, issued by AA 7T3MIJFUUZD23DZJ6BDDGBZPNS6RYFAM');	
+			if($asset == 'ambiguous') bounce('Only 1 asset per tx');
+		}
+		$asset_offered = $asset;
+		$fill_pair = sha256($asset_wanted||'_'||$asset_offered);
+		$price = trigger.data.price;
+		$orders_to_fill = $fill_pair||'_'||$price;
+	}`,
+	messages:{
+		cases: [
+			{
+				if: `{trigger.data.cancel}`,
+				init: `{
+					$asset_ofered = trigger.data.asset;
+					if(!$asset_ofered OR !asset[$asset_ofered].exists) bounce('asset param missing, send asset you offered in your order');
+					if(!$asset_wanted OR !asset[$asset_wanted].exists) bounce('want param missing, send asset you asked for to cancel');
+					if(!$price OR !is_integer($price)) bounce('price param missing, send price of your order');
+					$order_id = sha256($asset_ofered||'_'||$asset_wanted)||'_'||$price||'_'||trigger.address;
+					if(!var[$order_id]) bounce('Order not found, check params');
+					$cancel_key = sha256($asset_ofered||'_'||$asset_wanted)||'_'||$price;
+					$cancel_pair = sha256($asset_ofered||'_'||$asset_wanted);
+				}`,
+				messages:[
+					{
+						app: 'payment',
+						payload: {
+							asset: `{$asset_ofered}`,
+							outputs: [
+								{address: "{trigger.address}",amount:`{var[$order_id]}`}
+							]
+						}
+					},
+					{
+						app: 'payment',
+						payload: {
+							asset: 'base',
+							outputs: [
+								{address: "{trigger.address}",amount:`{2*$BASE_INP}`}
+							]
+						}
+					},
+					{
+						app:'state',
+						state: `{
+							var[$cancel_key] -= 1;
+							if(var[$cancel_key] == 0) 
+								var[$cancel_key]=false;
+							var[$cancel_pair] -= 1;
+							if(var[$cancel_pair] == 0) 
+								var[$cancel_pair]=false;
+							$am = var[$order_id];
+							var[$order_id] = false; 
+							response['message'] = 'Canceled order to sell '||$am||' '||$asset_ofered||' at '||$price||' '||$asset_wanted||' per unit';
+						}`
+					}
+				]
+			},
+			{
+				if:`{trigger.data.check_fill}`,
+				init:`{
+					bounce('Total orders to fill: '||var[$fill_pair]||'. Orders who match with input price:'||var[$orders_to_fill]||', to know address to fill and prices check '||this_address||' state vars around '||$fill_pair);
+				}`,
+				messages: [
+					{
+						app:'state',
+						state: `{}`
+					}
+				]
+			},
+			{
+				if: `{trigger.data.fill}`,
+				init: `{
+					$to_fill = trigger.data.address;
+					$fill_key = $orders_to_fill||'_'||$to_fill;
+					if(!var[$fill_pair]) bounce('No orders to fill for this pair');
+					if(!var[$orders_to_fill]) bounce('No orders to fill, check price param. There are '||var[$fill_pair]||' orders who match, to know address and prices to fill check '||this_address||' state vars around '||$orders_to_fill);
+					if(!$price OR !is_integer($price)) bounce('price param missing or invalid');
+					if(!$to_fill OR !is_valid_address($to_fill)) bounce('address param missing or invalid.');
+					if(!var[$fill_key]) bounce('Address has no created order on this pair');
+					$a_amount = var[$fill_key];
+					$in_exch = ($a_amount*$price);
+					if($asset_inp < $in_exch) bounce('Not enough funds sent to fill the order, need '||$in_exch);
+					$return_amount = ($asset_inp - $in_exch) > 0?($asset_inp - $in_exch):0;
+				}`,
+				messages:[
+					{
+						app: 'payment',
+						payload: {
+							asset: `{$asset_offered}`,
+							outputs: [
+								{address: "{$to_fill}",amount: `{$in_exch+$return_amount}`}
+							]
+						}
+					},
+					{
+						app: 'payment',
+						payload: {
+							asset: `{$asset_wanted}`,
+							outputs: [
+								{address: "{trigger.address}",amount: `{$a_amount}`}
+							]
+						}
+					},
+					{
+						app: 'payment',
+						payload: {
+							asset: 'base',
+							outputs: [
+								{address: "{trigger.address}",amount: `{$BASE_INP}`},
+								{address: "{$to_fill}",amount: `{$BASE_INP}`}
+							]
+						}
+					},
+					{
+						app:'state',
+						state: `{
+							var[$orders_to_fill] -= 1;
+							if(var[$orders_to_fill] == 0) 
+								var[$orders_to_fill]=false;
+							var[$fill_pair] -= 1;
+							if(var[$fill_pair] == 0) 
+								var[$fill_pair]=false;
+							response['message'] = 'Exchanged '||$a_amount||' '||$asset_wanted||' for '||$in_exch||' '||$asset_offered;
+							var[$fill_key] = false; 
+						}`
+					}
+				]
+			},
+			{
+				init: `{
+						$ord_pair = sha256($asset_offered||'_'||$asset_wanted);
+						$ord_key = $ord_pair ||'_'||$price;
+						$ord_addr_key = $ord_pair||'_'||$price||'_'||trigger.address;
+						if(!$price OR !is_integer($price)) bounce('price param missing or invalid. Send a price (in assets wanted per asset offered) to create order. Send check_fill = 1 to check if there is orders to fill for your pair.');
+						if(var[$ord_addr_key]) bounce('You already sent to exchange for this pair, please cancel order first sending cancel = 1');
+				}`,
+				messages:[
+					{
+						app:'state',
+						state: `{
+							    var[$ord_pair] +=1;
+								var[$ord_key] += 1;
+								var[$ord_addr_key] = $asset_inp; 
+								response['message'] = 'Order created to sell '||$asset_inp||' '||$asset_offered||' at '||$price||' '||$asset_wanted||' per unit';
+						}`
+					}
+				]
+			}
+		]
+	}
+}
