@@ -1,7 +1,7 @@
 # aa-aa-exchanger
 AA asset to asset exchange
 
-Allows users to exchange freely any amount of an asset in exchange for any other asset.
+Allows users to exchange an asset for any other asset.
 
 It is not designed to be used directly on wallet (however bounce messages help a lot), also it would need integration with DANAA or some kind of asset registry to be more useful.
 
