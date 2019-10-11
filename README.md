@@ -3,7 +3,7 @@ AA asset to asset exchange
 
 Allows users to exchange an asset for any other asset.
 
-It is not designed to be used directly on wallet (however bounce messages help a lot), also it would need integration with DANAA or some kind of asset registry to be more useful.
+It is not designed to be used directly on wallet (althrough bounce messages help a lot, it is not enough), also it would need integration with DANAA or some kind of asset registry to be more useful.
 
 It is designed to be used through a web, to show data and help filling fields.
 
