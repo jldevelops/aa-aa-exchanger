@@ -63,7 +63,7 @@ Set asset to ask for with `want`
 
 Set order price with `price`
 
-Set address to fill with `price`
+Set address to fill with `address`
 
 ![Fill order cap](https://i.imgur.com/6HChw1S.png)
 
